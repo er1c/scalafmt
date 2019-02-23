@@ -37,7 +37,7 @@ class GitOpsImpl(private[util] val workingDirectory: AbsoluteFile)
       }
     }
 
-    gitRes.map(_.lines.toSeq)
+    gitRes.map(_.linesIterator.toSeq)
   }
 
   override def lsTree(dir: AbsoluteFile): Seq[AbsoluteFile] =

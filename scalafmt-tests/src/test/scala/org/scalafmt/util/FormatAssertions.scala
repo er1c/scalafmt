@@ -58,8 +58,8 @@ trait FormatAssertions extends FunSuiteLike with DiffAssertions {
     */
   def diffAsts(original: String, obtained: String): String = {
 //    compareContents(formatAst(original), formatAst(obtained))
-    compareContents(original.replace("(", "\n("), obtained.replace("(", "\n(")).lines
-      .mkString("\n")
+    compareContents(original.replace("(", "\n("), obtained.replace("(", "\n("))
+      .linesIterator.mkString("\n")
   }
 
   // TODO(olafur) move this to scala.meta?
@@ -67,7 +67,7 @@ trait FormatAssertions extends FunSuiteLike with DiffAssertions {
   def parseException2Message(e: ParseException, obtained: String): String = {
     val range = 3
     val i = e.pos.start.line
-    val lines = obtained.lines.toVector
+    val lines = obtained.linesIterator.toVector
     val arrow = (" " * (e.pos.start.column - 2)) + "^"
     s"""${lines.slice(i - range, i + 1).mkString("\n")}
        |$arrow

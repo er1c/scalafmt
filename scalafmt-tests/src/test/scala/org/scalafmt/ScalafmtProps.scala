@@ -47,7 +47,7 @@ class ScalafmtProps extends FormatAssertions {
         case e: Error.FormatterOutputDoesNotParse =>
           Seq(
             Observation(
-              e.getMessage.lines.slice(1, 2).mkString(""),
+              e.getMessage.linesIterator.slice(1, 2).mkString(""),
               e.line,
               FormattedOutputDoesNotParse
             )
@@ -56,13 +56,13 @@ class ScalafmtProps extends FormatAssertions {
           Seq(Observation(e.getMessage, -1, Unknown(e)))
         case e: DiffFailure =>
           val line =
-            e.obtained.lines
-              .zip(e.expected.lines)
+            e.obtained.linesIterator
+              .zip(e.expected.linesIterator)
               .takeWhile { case (a, b) => a == b }
               .length
           Seq(
             Observation(
-              e.diff.lines.take(3).mkString("\n"),
+              e.diff.linesIterator.take(3).mkString("\n"),
               line,
               NonIdempotent
             )

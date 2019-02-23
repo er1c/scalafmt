@@ -205,7 +205,7 @@ object TokenOps {
       //
       // In this case, we would put a newline before """short and indent by
       // two.
-      lit.syntax.lines.map(_.replaceFirst(" *|", "").length).max
+      lit.syntax.linesIterator.map(_.replaceFirst(" *|", "").length).max
     case _ =>
       val tokenSyntax = token.syntax
       val firstNewline = tokenSyntax.indexOf('\n')

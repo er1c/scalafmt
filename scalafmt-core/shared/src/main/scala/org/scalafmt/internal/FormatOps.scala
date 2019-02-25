@@ -490,6 +490,20 @@ class FormatOps(val tree: Tree, val initStyle: ScalafmtConfig) {
     lastToken(owners(getSelectsLastToken(lastDot)))
   }
 
+  private def matchesIndentInclude(token: String)
+    (implicit style: ScalafmtConfig): Boolean = {
+    style.indentOperator.includeRegexp
+      .findFirstIn(token)
+      .isDefined
+  }
+
+  private def matchesIndentExclude(token: String)
+    (implicit style: ScalafmtConfig): Boolean = {
+    style.indentOperator.excludeRegexp
+      .findFirstIn(token)
+      .isDefined
+  }
+
   def infixSplit(owner: Term.ApplyInfix, formatToken: FormatToken)(
       implicit line: sourcecode.Line): Split =
     infixSplit(owner, owner.op, owner.args, formatToken)
@@ -499,35 +513,79 @@ class FormatOps(val tree: Tree, val initStyle: ScalafmtConfig) {
       op: Name,
       rhsArgs: Seq[Tree],
       formatToken: FormatToken)(implicit line: sourcecode.Line): Split = {
-    val style = styleMap.at(formatToken)
+    implicit val style = styleMap.at(formatToken)
     val modification = newlines2Modification(
       formatToken.between,
       rightIsComment = formatToken.right.isInstanceOf[Comment])
     val indent = {
-      if (style.unindentTopLevelOperators &&
-        !isTopLevelInfixApplication(owner) &&
-        style.indentOperator.includeRegexp
-          .findFirstIn(formatToken.left.syntax)
-          .isDefined &&
-        style.indentOperator.excludeRegexp
-          .findFirstIn(formatToken.left.syntax)
-          .isEmpty) 2
-      else if ((style.unindentTopLevelOperators ||
-        isTopLevelInfixApplication(owner)) &&
-        (style.indentOperator.includeRegexp
-          .findFirstIn(op.tokens.head.syntax)
-          .isEmpty ||
-        style.indentOperator.excludeRegexp
-          .findFirstIn(op.tokens.head.syntax)
-          .isDefined)) 0
-      else if (!modification.isNewline &&
-        !isAttachedSingleLineComment(formatToken.right, formatToken.between)) 0
-      else 2
+      val formatTokenMatchesIncludeIndentOperator: Boolean =
+        matchesIndentInclude(formatToken.left.syntax)
+      val formatTokenMatchesExcludedIndentOperator: Boolean =
+        matchesIndentExclude(formatToken.left.syntax)
+
+      val formatTokenMatchesIndentOperator: Boolean =
+        formatTokenMatchesIncludeIndentOperator &&
+        !formatTokenMatchesExcludedIndentOperator
+
+      val opsTokenMatchesIncludeIndentOperator: Boolean =
+        matchesIndentInclude(op.tokens.head.syntax)
+      val opsTokenMatchesExcludedIndentOperator: Boolean =
+        matchesIndentExclude(op.tokens.head.syntax)
+
+      val opsTokenMatchesIndentOperator: Boolean =
+        opsTokenMatchesIncludeIndentOperator &&
+        !opsTokenMatchesExcludedIndentOperator
+
+      val indentOperatorMatches: Boolean =
+        (formatTokenMatchesIncludeIndentOperator && !formatTokenMatchesExcludedIndentOperator) ||
+        (opsTokenMatchesIndentOperator && !opsTokenMatchesExcludedIndentOperator)
+
+      // TODO: This logic is suspect
+      val isTopLevelFormatTokenIndentOperatorMatch: Boolean = {
+        (owner.parent.exists{ TreeOps.MaybeTopLevelStat.unapply(_).isDefined } ||
+        (formatToken.left.syntax == "=")) &&
+        formatTokenMatchesIndentOperator
+      }
+
+/*
+
+      logger.debug(
+        s"""|infixSplit.indent:
+            |
+            |owner.parent: ${owner.parent}
+            |
+            |formatToken.right.syntax == owner.tokens.head: ${formatToken.right.syntax} == ${owner.tokens.head.syntax}: ${formatToken.right.syntax == owner.tokens.head.syntax}
+            |formatToken.left.syntax != op.tokens.head.syntax: ${formatToken.left.syntax} != ${op.tokens.head.syntax}: ${formatToken.left.syntax != op.tokens.head.syntax}
+            |isTopLevelFormatTokenIndentOperatorMatch: ${isTopLevelFormatTokenIndentOperatorMatch}
+            |
+            |formatToken.left.syntax: ${formatToken.left.syntax}
+            |op.tokens.head.syntax: ${op.tokens.head.syntax}
+            |
+            |style.indentOperator.includeRegexp: "${style.indentOperator.includeRegexp}"
+            |style.indentOperator.excludeRegexp: "${style.indentOperator.excludeRegexp}"
+            |
+            |formatTokenMatchesIncludeIndentOperator = ${formatTokenMatchesIncludeIndentOperator}
+            |formatTokenMatchesExcludedIndentOperator = ${formatTokenMatchesExcludedIndentOperator}
+            |
+            |formatTokenMatchesIndentOperator = ${formatTokenMatchesIndentOperator}
+            |
+            |opsTokenMatchesIncludeIndentOperator = ${opsTokenMatchesIncludeIndentOperator}
+            |opsTokenMatchesExcludedIndentOperator = ${opsTokenMatchesExcludedIndentOperator}
+            |
+            |opsTokenMatchesIndentOperator = ${opsTokenMatchesIndentOperator}
+            |
+            |indentOperatorMatches = ${indentOperatorMatches}
+            |""".stripMargin)*/
+
+      if (isTopLevelFormatTokenIndentOperatorMatch) 2
+      else if (!isTopLevelFormatTokenIndentOperatorMatch &&
+        opsTokenMatchesIndentOperator &&
+        (!isTopLevelInfixApplication(owner) ||
+          modification.isNewline)
+      ) 2
+      else 0
     }
-    val isRightAssociative =
-      // NOTE. Silly workaround because we call infixSplit from assignment =, see #798
-      formatToken.left.syntax != "=" &&
-        isRightAssociativeOperator(op.value)
+    val isRightAssociative = isRightAssociativeOperator(op.value)
     val expire = (for {
       arg <- {
         if (isRightAssociative) rhsArgs.headOption
@@ -548,6 +606,32 @@ class FormatOps(val tree: Tree, val initStyle: ScalafmtConfig) {
         }
       }
     } yield token).getOrElse(owner.tokens.last)
+
+/*
+    logger.debug(
+      s"""|infixSplit(
+          |  owner: $owner
+          |  op: $op
+          |  rhsArgs: $rhsArgs
+          |  formatToken: $formatToken
+          |)
+          |style = ${style}
+          |
+          |modification = ${modification}
+          |
+          |indent = ${indent}
+          |
+          |style.unindentTopLevelOperators: ${style.unindentTopLevelOperators}
+          |isTopLevelInfixApplication(owner): ${isTopLevelInfixApplication(owner)}
+          |modification.isNewline: ${modification.isNewline}
+          |isAttachedSingleLineComment(formatToken.right, formatToken.between): ${isAttachedSingleLineComment(formatToken.right, formatToken.between)}
+          |
+          |op.tokens.head.syntax = "${op.tokens.head.syntax}"
+          |formatToken.left.syntax = "${formatToken.left.syntax}"
+          |formatToken = ${formatToken}
+          |
+          |""".stripMargin)*/
+
 
     owner.parent match {
       case Some(_: Type.ApplyInfix)
